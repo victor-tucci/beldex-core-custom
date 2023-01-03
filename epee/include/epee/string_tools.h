@@ -63,6 +63,10 @@ using namespace std::literals;
 
 namespace string_tools
 {
+  inline std::string buff_to_hex_nodelimer(const std::string& src)
+  {
+    return to_hex::string(to_byte_span(to_span(src)));
+  }
   //----------------------------------------------------------------------------
   inline bool parse_hexstr_to_binbuff(const epee::span<const char> s, epee::span<char>& res)
   {
