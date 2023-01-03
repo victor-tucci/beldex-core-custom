@@ -1,5 +1,4 @@
-// Copyright (c) 2017-2022, The Monero Project
-
+// Copyright (c) 2017, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -29,7 +28,7 @@
 //
 // Adapted from Python code by Sarang Noether
 
-#include "misc_log_ex.h"
+#include "epee/misc_log_ex.h"
 #include "common/perf_timer.h"
 extern "C"
 {
@@ -39,8 +38,8 @@ extern "C"
 #include "rctOps.h"
 #include "multiexp.h"
 
-#undef MONERO_DEFAULT_LOG_CATEGORY
-#define MONERO_DEFAULT_LOG_CATEGORY "multiexp"
+#undef BELDEX_DEFAULT_LOG_CATEGORY
+#define BELDEX_DEFAULT_LOG_CATEGORY "multiexp"
 
 //#define MULTIEXP_PERF(x) x
 #define MULTIEXP_PERF(x)
@@ -236,7 +235,7 @@ rct::key bos_coster_heap_conv_robust(std::vector<MultiexpData> data)
   heap.reserve(points);
   for (size_t n = 0; n < points; ++n)
   {
-    if (!(data[n].scalar == rct::zero()) && !ge_p3_is_point_at_infinity_vartime(&data[n].point))
+    if (!(data[n].scalar == rct::zero()) && !ge_p3_is_point_at_infinity(&data[n].point))
       heap.push_back(n);
   }
   points = heap.size();
@@ -373,6 +372,7 @@ std::shared_ptr<straus_cached_data> straus_init_cache(const std::vector<Multiexp
   if (N == 0)
     N = data.size();
   CHECK_AND_ASSERT_THROW_MES(N <= data.size(), "Bad cache base data");
+  ge_cached cached;
   ge_p1p1 p1;
   ge_p3 p3;
   std::shared_ptr<straus_cached_data> cache(new straus_cached_data());
@@ -450,15 +450,17 @@ rct::key straus(const std::vector<MultiexpData> &data, const std::shared_ptr<str
   STEP = STEP ? STEP : 192;
 
   MULTIEXP_PERF(PERF_TIMER_START_UNIT(setup, 1000000));
+  static constexpr unsigned int mask = (1<<STRAUS_C)-1;
   std::shared_ptr<straus_cached_data> local_cache = cache == NULL ? straus_init_cache(data) : cache;
   ge_cached cached;
   ge_p1p1 p1;
+  ge_p3 p3;
 
 #ifdef TRACK_STRAUS_ZERO_IDENTITY
   MULTIEXP_PERF(PERF_TIMER_START_UNIT(skip, 1000000));
   std::vector<uint8_t> skip(data.size());
   for (size_t i = 0; i < data.size(); ++i)
-    skip[i] = data[i].scalar == rct::zero() || ge_p3_is_point_at_infinity_vartime(&data[i].point);
+    skip[i] = data[i].scalar == rct::zero() || ge_p3_is_point_at_infinity(&data[i].point);
   MULTIEXP_PERF(PERF_TIMER_STOP(skip));
 #endif
 
@@ -483,7 +485,6 @@ rct::key straus(const std::vector<MultiexpData> &data, const std::shared_ptr<str
     memcpy(bytes33,  data[j].scalar.bytes, 32);
     bytes33[32] = 0;
     bytes = bytes33;
-    static constexpr unsigned int mask = (1<<STRAUS_C)-1;
     for (size_t i = 0; i < 256; ++i)
       digits[j*256+i] = ((bytes[i>>3] | (bytes[(i>>3)+1]<<8)) >> (i&7)) & mask;
 #else
@@ -586,6 +587,7 @@ std::shared_ptr<pippenger_cached_data> pippenger_init_cache(const std::vector<Mu
   if (N == 0)
     N = data.size() - start_offset;
   CHECK_AND_ASSERT_THROW_MES(N <= data.size() - start_offset, "Bad cache base data");
+  ge_cached cached;
   std::shared_ptr<pippenger_cached_data> cache(new pippenger_cached_data());
 
   cache->size = N;

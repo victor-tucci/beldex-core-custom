@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2022, The Monero Project
+// Copyright (c) 2017-2018, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -36,7 +36,7 @@
 #ifdef HAVE_EXPLICIT_BZERO
 #include <strings.h>
 #endif
-#include "memwipe.h"
+#include "epee/memwipe.h"
 
 #if defined(_MSC_VER)
 #define SCARECROW \

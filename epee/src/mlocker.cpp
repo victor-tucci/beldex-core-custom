@@ -1,5 +1,4 @@
-// Copyright (c) 2018-2022, The Monero Project
-
+// Copyright (c) 2018, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -27,22 +26,27 @@
 // STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
-#if defined __GNUC__ && !defined _WIN32
-// #define HAVE_MLOCK 1
+#if defined __GNUC__ && !defined _WIN32 && !defined __ANDROID__
+#define HAVE_MLOCK 1
 #endif
 
 #include <unistd.h>
 #if defined HAVE_MLOCK
 #include <sys/mman.h>
 #endif
-#include "misc_log_ex.h"
-#include "syncobj.h"
-#include "mlocker.h"
+#include "epee/misc_log_ex.h"
+#include "epee/mlocker.h"
 
 #include <atomic>
+#include <cerrno>
+#include <cstdint>
+#include <cstring>
+#include <map>
+#include <mutex>
+#include <utility>
 
-#undef MONERO_DEFAULT_LOG_CATEGORY
-#define MONERO_DEFAULT_LOG_CATEGORY "mlocker"
+#undef BELDEX_DEFAULT_LOG_CATEGORY
+#define BELDEX_DEFAULT_LOG_CATEGORY "mlocker"
 
 // did an mlock operation previously fail? we only
 // want to log an error once and be done with it
@@ -94,9 +98,9 @@ namespace epee
   size_t mlocker::page_size = 0;
   size_t mlocker::num_locked_objects = 0;
 
-  boost::mutex &mlocker::mutex()
+  std::mutex &mlocker::mutex()
   {
-    static boost::mutex *vmutex = new boost::mutex();
+    static std::mutex *vmutex = new std::mutex();
     return *vmutex;
   }
   std::map<size_t, unsigned int> &mlocker::map()
@@ -107,99 +111,121 @@ namespace epee
 
   size_t mlocker::get_page_size()
   {
-    return 4096;
-    // CRITICAL_REGION_LOCAL(mutex());
-    // if (page_size == 0)
-    //   page_size = query_page_size();
-    // return page_size;
+#if defined(HAVE_MLOCK)
+    std::lock_guard lock{mutex()};
+    if (page_size == 0)
+      page_size = query_page_size();
+    return page_size;
+#else
+    return 0;
+#endif
   }
 
   mlocker::mlocker(void *ptr, size_t len): ptr(ptr), len(len)
   {
-    // lock(ptr, len);
+#if defined(HAVE_MLOCK)
+    lock(ptr, len);
+#endif
   }
 
   mlocker::~mlocker()
   {
-    // unlock(ptr, len);
+#if defined(HAVE_MLOCK)
+    try { unlock(ptr, len); }
+    catch (...) { /* ignore and do not propagate through the dtor */ }
+#endif
   }
 
   void mlocker::lock(void *ptr, size_t len)
   {
+#if defined(HAVE_MLOCK)
     TRY_ENTRY();
 
     size_t page_size = get_page_size();
     if (page_size == 0)
       return;
 
-    // CRITICAL_REGION_LOCAL(mutex());
-    // const size_t first = ((uintptr_t)ptr) / page_size;
-    // const size_t last = (((uintptr_t)ptr) + len - 1) / page_size;
-    // for (size_t page = first; page <= last; ++page)
-    //   lock_page(page);
-    // ++num_locked_objects;
+    std::lock_guard lock{mutex()};
+    const size_t first = ((uintptr_t)ptr) / page_size;
+    const size_t last = (((uintptr_t)ptr) + len - 1) / page_size;
+    for (size_t page = first; page <= last; ++page)
+      lock_page(page);
+    ++num_locked_objects;
 
     CATCH_ENTRY_L1("mlocker::lock", void());
+#endif
   }
 
   void mlocker::unlock(void *ptr, size_t len)
   {
+#if defined(HAVE_MLOCK)
     TRY_ENTRY();
 
     size_t page_size = get_page_size();
     if (page_size == 0)
       return;
-    // CRITICAL_REGION_LOCAL(mutex());
-    // const size_t first = ((uintptr_t)ptr) / page_size;
-    // const size_t last = (((uintptr_t)ptr) + len - 1) / page_size;
-    // for (size_t page = first; page <= last; ++page)
-    //   unlock_page(page);
-    // --num_locked_objects;
+    std::lock_guard lock{mutex()};
+    const size_t first = ((uintptr_t)ptr) / page_size;
+    const size_t last = (((uintptr_t)ptr) + len - 1) / page_size;
+    for (size_t page = first; page <= last; ++page)
+      unlock_page(page);
+    --num_locked_objects;
 
     CATCH_ENTRY_L1("mlocker::lock", void());
+#endif
   }
 
   size_t mlocker::get_num_locked_pages()
   {
+#if defined(HAVE_MLOCK)
+    std::lock_guard lock{mutex()};
+    return map().size();
+#else
     return 0;
-    // CRITICAL_REGION_LOCAL(mutex());
-    // return map().size();
+#endif
   }
 
   size_t mlocker::get_num_locked_objects()
   {
+#if defined(HAVE_MLOCK)
+    std::lock_guard lock{mutex()};
+    return num_locked_objects;
+#else
     return 0;
-    // CRITICAL_REGION_LOCAL(mutex());
-    // return num_locked_objects;
+#endif
   }
 
   void mlocker::lock_page(size_t page)
   {
-    // std::pair<std::map<size_t, unsigned int>::iterator, bool> p = map().insert(std::make_pair(page, 1));
-    // if (p.second)
-    // {
-    //   do_lock((void*)(page * page_size), page_size);
-    // }
-    // else
-    // {
-    //   ++p.first->second;
-    // }
+#if defined(HAVE_MLOCK)
+    std::pair<std::map<size_t, unsigned int>::iterator, bool> p = map().insert(std::make_pair(page, 1));
+    if (p.second)
+    {
+      do_lock((void*)(page * page_size), page_size);
+    }
+    else
+    {
+      ++p.first->second;
+    }
+#endif
   }
 
   void mlocker::unlock_page(size_t page)
   {
-    // std::map<size_t, unsigned int>::iterator i = map().find(page);
-    // if (i == map().end())
-    // {
-    //   MERROR("Attempt to unlock unlocked page at " << (void*)(page * page_size));
-    // }
-    // else
-    // {
-    //   if (!--i->second)
-    //   {
-    //     map().erase(i);
-    //     do_unlock((void*)(page * page_size), page_size);
-    //   }
-    // }
+#if defined(HAVE_MLOCK)
+    std::map<size_t, unsigned int>::iterator i = map().find(page);
+    if (i == map().end())
+    {
+      MERROR("Attempt to unlock unlocked page at " << (void*)(page * page_size));
+    }
+    else
+    {
+      if (!--i->second)
+      {
+        map().erase(i);
+        do_unlock((void*)(page * page_size), page_size);
+      }
+    }
+#endif
   }
 }

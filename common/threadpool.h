@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2022, The Monero Project
+// Copyright (c) 2017-2019, The Monero Project
 //
 // All rights reserved.
 //
@@ -27,14 +27,15 @@
 // THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #pragma once
 
-#include <boost/thread/condition_variable.hpp>
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/thread.hpp>
 #include <cstddef>
 #include <functional>
 #include <utility>
 #include <vector>
+#include <deque>
 #include <stdexcept>
+#include <thread>
+#include <mutex>
+#include <condition_variable>
 
 namespace tools
 {
@@ -53,18 +54,14 @@ public:
   // The waiter lets the caller know when all of its
   // tasks are completed.
   class waiter {
-    boost::mutex mt;
-    boost::condition_variable cv;
-    threadpool &pool;
+    std::mutex mt;
+    std::condition_variable cv;
     int num;
-    bool error_flag;
     public:
     void inc();
     void dec();
-    bool wait();  //! Wait for a set of tasks to finish, returns false iff any error
-    void set_error() noexcept { error_flag = true; }
-    bool error() const noexcept { return error_flag; }
-    waiter(threadpool &pool) : pool(pool), num(0), error_flag(false) {}
+    void wait(threadpool *tpool);  //! Wait for a set of tasks to finish.
+    waiter() : num(0){}
     ~waiter();
   };
 
@@ -79,6 +76,8 @@ public:
   unsigned int get_max_concurrency() const;
 
   ~threadpool();
+  void stop();
+  void start(unsigned int max_threads = 0);
 
   private:
     threadpool(unsigned int max_threads = 0);
@@ -90,9 +89,9 @@ public:
       bool leaf;
     } entry;
     std::deque<entry> queue;
-    boost::condition_variable has_work;
-    boost::mutex mutex;
-    std::vector<boost::thread> threads;
+    std::condition_variable has_work;
+    std::mutex mutex;
+    std::vector<std::thread> threads;
     unsigned int active;
     unsigned int max;
     bool running;

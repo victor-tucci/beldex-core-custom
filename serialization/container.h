@@ -1,4 +1,5 @@
-// Copyright (c) 2014-2022, The Monero Project
+// Copyright (c) 2018-2020, The Beldex Project
+// Copyright (c) 2014-2017, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -28,87 +29,99 @@
 // 
 // Parts of this file are originally copyright (c) 2012-2013 The Cryptonote developers
 
-namespace serialization
+#pragma once
+
+#include "serialization.h"
+
+namespace serialization_s
 {
-  namespace detail
-  {
-    template<typename T>
-    inline constexpr bool use_container_varint() noexcept
-    {
-      return std::is_integral<T>::value && std::is_unsigned<T>::value && sizeof(T) > 1;
-    }
 
-    template <typename Archive, class T>
-    typename std::enable_if<!use_container_varint<T>(), bool>::type
-    serialize_container_element(Archive& ar, T& e)
-    {
-      return ::do_serialize(ar, e);
-    }
-
-    template<typename Archive, typename T>
-    typename std::enable_if<use_container_varint<T>(), bool>::type
-    serialize_container_element(Archive& ar, T& e)
-    {
-      static constexpr const bool previously_varint = std::is_same<uint64_t, T>() || std::is_same<uint32_t, T>();
-
-      if (!previously_varint && ar.varint_bug_backward_compatibility_enabled() && !typename Archive::is_saving())
-        return ::do_serialize(ar, e);
-      ar.serialize_varint(e);
-      return true;
-    }
-
-    template <typename C>
-    void do_reserve(C &c, size_t N) {}
-  }
+// Consumes everything left in a deserialization archiver stream (without knowing the number of
+// elements in advance) into the given container (which must supply an stl-like `emplace_back()`).
+// Throws on serialization error, including the case where we run out of data that *isn't* on a
+// deserialization value boundary.
+template <class Archive, typename Container, std::enable_if_t<Archive::is_deserializer, int> = 0>
+void deserialize_all(Archive& ar, Container& c)
+{
+  while (ar.remaining_bytes() > 0)
+    value(ar, c.emplace_back());
 }
 
-template <template <bool> class Archive, typename C>
-bool do_serialize_container(Archive<false> &ar, C &v)
+namespace detail
 {
+
+/// True if `val.reserve(0)` exists for `T val`.
+template <typename T, typename = void>
+constexpr bool has_reserve = false;
+template <typename T>
+constexpr bool has_reserve<T, std::void_t<decltype(std::declval<T>().reserve(size_t{}))>> = true;
+
+/// True if `val.emplace_back()` exists for `T val`, and that T::value_type is default
+/// constructible.
+template <typename T, typename = void>
+constexpr bool has_emplace_back = false;
+template <typename T>
+constexpr bool has_emplace_back<T, std::enable_if_t<std::is_default_constructible_v<typename T::value_type>,
+                                      std::void_t<decltype(std::declval<T>().emplace_back())>>> = true;
+
+/// True if `val.insert(V{})` exists for `T val` and `using V = T::value_type`.
+template <typename T, typename = void>
+constexpr bool has_value_insert = false;
+template <typename T>
+constexpr bool has_value_insert<T, std::void_t<decltype(std::declval<T>().insert(typename T::value_type{}))>> = true;
+
+template <typename Archive, class T>
+void serialize_container_element(Archive& ar, T& e)
+{
+  using I = std::remove_cv_t<T>;
+  if constexpr (std::is_same_v<I, uint32_t> || std::is_same_v<I, uint64_t>)
+    varint(ar, e);
+  else
+    value(ar, e);
+}
+
+// Deserialize into the container.
+template <class Archive, typename C, std::enable_if_t<Archive::is_deserializer, int> = 0>
+void serialize_container(Archive& ar, C& v)
+{
+  using T = std::remove_cv_t<typename C::value_type>;
+
   size_t cnt;
-  ar.begin_array(cnt);
-  if (!ar.good())
-    return false;
-  v.clear();
+  auto arr = ar.begin_array(cnt);
 
   // very basic sanity check
-  if (ar.remaining_bytes() < cnt) {
-    ar.set_fail();
-    return false;
-  }
+  // disabled because it is wrong: a type could, for example, pack multiple values into a byte (e.g.
+  // something like std::vector<bool> does), in which cases values >= bytes need not be true.
+  //ar.remaining_bytes(cnt);
 
-  ::serialization::detail::do_reserve(v, cnt);
+  v.clear();
+  if constexpr (detail::has_reserve<C>)
+    v.reserve(cnt);
+
+  static_assert(detail::has_emplace_back<C> || detail::has_value_insert<C>, "Unsupported container type");
 
   for (size_t i = 0; i < cnt; i++) {
-    if (i > 0)
-      ar.delimit_array();
-    typename C::value_type e;
-    if (!::serialization::detail::serialize_container_element(ar, e))
-      return false;
-    ::serialization::detail::do_add(v, std::move(e));
-    if (!ar.good())
-      return false;
+    arr.element();
+    if constexpr (detail::has_emplace_back<C>)
+      detail::serialize_container_element(ar, v.emplace_back());
+    else {
+      T e{};
+      detail::serialize_container_element(ar, e);
+      e.insert(std::move(e));
+    }
   }
-  ar.end_array();
-  return true;
 }
 
-template <template <bool> class Archive, typename C>
-bool do_serialize_container(Archive<true> &ar, C &v)
+// Serialize the container
+template <class Archive, typename C, std::enable_if_t<Archive::is_serializer, int> = 0>
+void serialize_container(Archive& ar, C& v)
 {
   size_t cnt = v.size();
-  ar.begin_array(cnt);
-  for (auto i = v.begin(); i != v.end(); ++i)
-  {
-    if (!ar.good())
-      return false;
-    if (i != v.begin())
-      ar.delimit_array();
-    if(!::serialization::detail::serialize_container_element(ar, (typename C::value_type&)*i))
-      return false;
-    if (!ar.good())
-      return false;
-  }
-  ar.end_array();
-  return true;
+  auto arr = ar.begin_array(cnt);
+  for (auto& e : v)
+    serialize_container_element(arr.element(), e);
 }
+
+} // namespace detail
+
+} // namespace serialization

@@ -1,4 +1,5 @@
-// Copyright (c) 2014-2022, The Monero Project
+// Copyright (c) 2014-2018, The Monero Project
+// Copyright (c)      2018, The Beldex Project
 //
 // All rights reserved.
 //
@@ -28,24 +29,24 @@
 //
 // Parts of this file are originally copyright (c) 2012-2013 The Cryptonote developers
 
-#include "include_base_utils.h"
-using namespace epee;
-
 #include "cryptonote_basic_impl.h"
-#include "string_tools.h"
+#include "epee/string_tools.h"
 #include "serialization/binary_utils.h"
+#include "serialization/container.h"
 #include "cryptonote_format_utils.h"
 #include "cryptonote_config.h"
-#include "misc_language.h"
+#include "epee/misc_language.h"
 #include "common/base58.h"
 #include "crypto/hash.h"
-#include "int-util.h"
-#ifndef MYMONERO_CORE_CUSTOM
-#include "common/dns_utils.h"
-#endif // MYMONERO_CORE_CUSTOM
+#include "epee/int-util.h"
 
-#undef MONERO_DEFAULT_LOG_CATEGORY
-#define MONERO_DEFAULT_LOG_CATEGORY "cn"
+#include "common/dns_utils.h"
+#endif // 
+#include "common/beldex.h"
+#include <cfenv>
+
+#undef BELDEX_DEFAULT_LOG_CATEGORY
+#define BELDEX_DEFAULT_LOG_CATEGORY "cn"
 
 namespace cryptonote {
 
@@ -57,23 +58,33 @@ namespace cryptonote {
       FIELD(adr)
       FIELD(payment_id)
     END_SERIALIZE()
-
-    BEGIN_KV_SERIALIZE_MAP()
-      KV_SERIALIZE(adr)
-      KV_SERIALIZE(payment_id)
-    END_KV_SERIALIZE_MAP()
   };
 
   /************************************************************************/
   /* Cryptonote helper functions                                          */
   /************************************************************************/
   //-----------------------------------------------------------------------------------------------
+  bool block_header_has_POS_components(block_header const &blk_header)
+  {
+    constexpr cryptonote::POS_random_value empty_random_value = {};
+    bool bitset        = blk_header.POS.validator_bitset > 0;
+    bool random_value  = !(blk_header.POS.random_value == empty_random_value);
+    uint8_t hf_version = blk_header.major_version;
+    bool result        = hf_version >= cryptonote::network_version_17_POS && (bitset || random_value);
+    return result;
+  }
+  //-----------------------------------------------------------------------------------------------
+  bool block_has_POS_components(block const &blk)
+  {
+    bool signatures    = blk.signatures.size();
+    uint8_t hf_version = blk.major_version;
+    bool result =
+        (hf_version >= cryptonote::network_version_17_POS && signatures) || block_header_has_POS_components(blk);
+    return result;
+  }
+  //-----------------------------------------------------------------------------------------------
   size_t get_min_block_weight(uint8_t version)
   {
-    if (version < 2)
-      return CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V1;
-    if (version < 5)
-      return CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V2;
     return CRYPTONOTE_BLOCK_GRANTED_FULL_REWARD_ZONE_V5;
   }
   //-----------------------------------------------------------------------------------------------
@@ -82,18 +93,58 @@ namespace cryptonote {
     return CRYPTONOTE_MAX_TX_SIZE;
   }
   //-----------------------------------------------------------------------------------------------
-#ifndef MYMONERO_CORE_CUSTOM
-  bool get_block_reward(size_t median_weight, size_t current_block_weight, uint64_t already_generated_coins, uint64_t &reward, uint8_t version) {
-    static_assert(DIFFICULTY_TARGET_V2%60==0&&DIFFICULTY_TARGET_V1%60==0,"difficulty targets must be a multiple of 60");
+ 
+  // TODO(beldex): Move into beldex_economy, this will require access to beldex::exp2
+  uint64_t block_reward_unpenalized_formula_v7(uint8_t version, uint64_t already_generated_coins, uint64_t height)
+  {
     const int target = version < 2 ? DIFFICULTY_TARGET_V1 : DIFFICULTY_TARGET_V2;
     const int target_minutes = target / 60;
-    const int emission_speed_factor = EMISSION_SPEED_FACTOR_PER_MINUTE - (target_minutes-1);
+      const int emission_speed_factor = EMISSION_SPEED_FACTOR_PER_MINUTE - (target_minutes-1);
 
-    uint64_t base_reward = (MONEY_SUPPLY - already_generated_coins) >> emission_speed_factor;
-    if (base_reward < FINAL_SUBSIDY_PER_MINUTE*target_minutes)
+      uint64_t result = (MONEY_SUPPLY - already_generated_coins) >> emission_speed_factor;
+
+      if (version < network_version_7 )
+      {
+        if (result < FINAL_SUBSIDY_PER_MINUTE*target_minutes)
+        {
+          result = FINAL_SUBSIDY_PER_MINUTE*target_minutes;
+        }
+      }
+      else
+      {
+        result = 1000000000;
+      }
+    return result;
+  }
+
+  uint64_t block_reward_unpenalized_formula_v8(uint64_t height)
+  {
+    std::fesetround(FE_TONEAREST);
+    uint64_t result = 28'000'000'000. + 100'000'000'000. / beldex::exp2(height / (720. * 90)); // halve every 90 days.
+    return result;
+  }
+
+  bool get_base_block_reward(size_t median_weight, size_t current_block_weight, uint64_t already_generated_coins, uint64_t &reward, uint64_t &reward_unpenalized, uint8_t version, uint64_t height) {
+
+    //premine reward
+    if (height == 1)
     {
-      base_reward = FINAL_SUBSIDY_PER_MINUTE*target_minutes;
+      reward = 1400000000000000000;
+      return true;
     }
+
+	if((height>=56500) && (version<network_version_17_POS))
+	{
+		reward = COIN * 2;
+		return true;
+	}
+	static_assert(TARGET_BLOCK_TIME % 1 == 0s, "difficulty targets must be a multiple of 60");
+    static_assert(TARGET_BLOCK_TIME_V17 % 1 == 0s, "difficulty targets must be a multiple of 60");
+
+    uint64_t base_reward =
+      version >= network_version_17_POS ? BLOCK_REWARD_HF17_POS :
+      version >= network_version_16_bns ? BLOCK_REWARD_HF16 :
+        block_reward_unpenalized_formula_v7(version, already_generated_coins, height);
 
     uint64_t full_reward_zone = get_min_block_weight(version);
 
@@ -103,7 +154,7 @@ namespace cryptonote {
     }
 
     if (current_block_weight <= median_weight) {
-      reward = base_reward;
+      reward = reward_unpenalized = base_reward;
       return true;
     }
 
@@ -111,6 +162,9 @@ namespace cryptonote {
       MERROR("Block cumulative weight is too big: " << current_block_weight << ", expected less than " << 2 * median_weight);
       return false;
     }
+
+    assert(median_weight < std::numeric_limits<uint32_t>::max());
+    assert(current_block_weight < std::numeric_limits<uint32_t>::max());
 
     uint64_t product_hi;
     // BUGFIX: 32-bit saturation bug (e.g. ARM7), the result was being
@@ -121,16 +175,18 @@ namespace cryptonote {
 
     uint64_t reward_hi;
     uint64_t reward_lo;
-    div128_64(product_hi, product_lo, median_weight, &reward_hi, &reward_lo, NULL, NULL);
-    div128_64(reward_hi, reward_lo, median_weight, &reward_hi, &reward_lo, NULL, NULL);
+    div128_32(product_hi, product_lo, static_cast<uint32_t>(median_weight), &reward_hi, &reward_lo);
+    div128_32(reward_hi, reward_lo, static_cast<uint32_t>(median_weight), &reward_hi, &reward_lo);
     assert(0 == reward_hi);
     assert(reward_lo < base_reward);
 
+    reward_unpenalized = base_reward;
     reward = reward_lo;
     return true;
   }
+#endif // 
+
   //------------------------------------------------------------------------------------
-#endif // MYMONERO_CORE_CUSTOM
   uint8_t get_account_address_checksum(const public_address_outer_blob& bl)
   {
     const unsigned char* pbuf = reinterpret_cast<const unsigned char*>(&bl);
@@ -178,126 +234,81 @@ namespace cryptonote {
   //-----------------------------------------------------------------------
   bool is_coinbase(const transaction& tx)
   {
-    if(tx.vin.size() != 1)
-      return false;
-
-    if(tx.vin[0].type() != typeid(txin_gen))
-      return false;
-
-    return true;
+    return tx.vin.size() == 1 && std::holds_alternative<txin_gen>(tx.vin[0]);
   }
   //-----------------------------------------------------------------------
   bool get_account_address_from_str(
       address_parse_info& info
     , network_type nettype
-    , std::string const & str
+    , const std::string_view str
     )
   {
     uint64_t address_prefix = get_config(nettype).CRYPTONOTE_PUBLIC_ADDRESS_BASE58_PREFIX;
     uint64_t integrated_address_prefix = get_config(nettype).CRYPTONOTE_PUBLIC_INTEGRATED_ADDRESS_BASE58_PREFIX;
     uint64_t subaddress_prefix = get_config(nettype).CRYPTONOTE_PUBLIC_SUBADDRESS_BASE58_PREFIX;
 
-    if (2 * sizeof(public_address_outer_blob) != str.size())
+    blobdata data;
+    uint64_t prefix{0};
+    if (!tools::base58::decode_addr(str, prefix, data))
     {
-      blobdata data;
-      uint64_t prefix;
-      if (!tools::base58::decode_addr(str, prefix, data))
-      {
-        LOG_PRINT_L2("Invalid address format");
-        return false;
-      }
+      LOG_PRINT_L2("Invalid address format");
+      return false;
+    }
 
-      if (integrated_address_prefix == prefix)
-      {
-        info.is_subaddress = false;
-        info.has_payment_id = true;
-      }
-      else if (address_prefix == prefix)
-      {
-        info.is_subaddress = false;
-        info.has_payment_id = false;
-      }
-      else if (subaddress_prefix == prefix)
-      {
-        info.is_subaddress = true;
-        info.has_payment_id = false;
-      }
-      else {
-        LOG_PRINT_L1("Wrong address prefix: " << prefix << ", expected " << address_prefix 
-          << " or " << integrated_address_prefix
-          << " or " << subaddress_prefix);
-        return false;
-      }
+    if (integrated_address_prefix == prefix)
+    {
+      info.is_subaddress = false;
+      info.has_payment_id = true;
+    }
+    else if (address_prefix == prefix)
+    {
+      info.is_subaddress = false;
+      info.has_payment_id = false;
+    }
+    else if (subaddress_prefix == prefix)
+    {
+      info.is_subaddress = true;
+      info.has_payment_id = false;
+    }
+    else {
+      LOG_PRINT_L1("Wrong address prefix: " << prefix << ", expected " << address_prefix 
+        << " or " << integrated_address_prefix
+        << " or " << subaddress_prefix);
+      return false;
+    }
 
+    try {
       if (info.has_payment_id)
       {
         integrated_address iadr;
-        if (!::serialization::parse_binary(data, iadr))
-        {
-          LOG_PRINT_L1("Account public address keys can't be parsed");
-          return false;
-        }
+        serialization_s::parse_binary(data, iadr);
         info.address = iadr.adr;
         info.payment_id = iadr.payment_id;
       }
       else
       {
-        if (!::serialization::parse_binary(data, info.address))
-        {
-          LOG_PRINT_L1("Account public address keys can't be parsed");
-          return false;
-        }
+        serialization_s::parse_binary(data, info.address);
       }
-
-      if (!crypto::check_key(info.address.m_spend_public_key) || !crypto::check_key(info.address.m_view_public_key))
-      {
-        LOG_PRINT_L1("Failed to validate address keys");
-        return false;
-      }
+    } catch (const std::exception& e) {
+      LOG_PRINT_L1("Account public address keys can't be parsed: "s + e.what());
+      return false;
     }
-    else
+
+    if (!crypto::check_key(info.address.m_spend_public_key) || !crypto::check_key(info.address.m_view_public_key))
     {
-      // Old address format
-      std::string buff;
-      if(!string_tools::parse_hexstr_to_binbuff(str, buff))
-        return false;
-
-      if(buff.size()!=sizeof(public_address_outer_blob))
-      {
-        LOG_PRINT_L1("Wrong public address size: " << buff.size() << ", expected size: " << sizeof(public_address_outer_blob));
-        return false;
-      }
-
-      public_address_outer_blob blob = *reinterpret_cast<const public_address_outer_blob*>(buff.data());
-
-
-      if(blob.m_ver > CRYPTONOTE_PUBLIC_ADDRESS_TEXTBLOB_VER)
-      {
-        LOG_PRINT_L1("Unknown version of public address: " << blob.m_ver << ", expected " << CRYPTONOTE_PUBLIC_ADDRESS_TEXTBLOB_VER);
-        return false;
-      }
-
-      if(blob.check_sum != get_account_address_checksum(blob))
-      {
-        LOG_PRINT_L1("Wrong public address checksum");
-        return false;
-      }
-
-      //we success
-      info.address = blob.m_address;
-      info.is_subaddress = false;
-      info.has_payment_id = false;
+      LOG_PRINT_L1("Failed to validate address keys");
+      return false;
     }
 
     return true;
   }
-#ifndef MYMONERO_CORE_CUSTOM
   //--------------------------------------------------------------------------------
+
   bool get_account_address_from_str_or_url(
       address_parse_info& info
     , network_type nettype
-    , const std::string& str_or_url
-    , std::function<std::string(const std::string&, const std::vector<std::string>&, bool)> dns_confirm
+    , const std::string_view str_or_url
+    , std::function<std::string(const std::string_view, const std::vector<std::string>&, bool)> dns_confirm
     )
   {
     if (get_account_address_from_str(info, nettype, str_or_url))
@@ -315,22 +326,13 @@ namespace cryptonote {
   bool operator ==(const cryptonote::block& a, const cryptonote::block& b) {
     return cryptonote::get_block_hash(a) == cryptonote::get_block_hash(b);
   }
-#endif // MYMONERO_CORE_CUSTOM
+#endif // 
+
 }
 
-//--------------------------------------------------------------------------------
-bool parse_hash256(const std::string &str_hash, crypto::hash& hash)
-{
-  std::string buf;
-  bool res = epee::string_tools::parse_hexstr_to_binbuff(str_hash, buf);
-  if (!res || buf.size() != sizeof(crypto::hash))
-  {
-    MERROR("invalid hash format: " << str_hash);
-    return false;
-  }
-  else
-  {
-    buf.copy(reinterpret_cast<char *>(&hash), sizeof(crypto::hash));
-    return true;
-  }
-}
+KV_SERIALIZE_MAP_CODE_BEGIN(cryptonote::address_parse_info)
+  KV_SERIALIZE(address)
+  KV_SERIALIZE(is_subaddress)
+  KV_SERIALIZE(has_payment_id)
+  KV_SERIALIZE_VAL_POD_AS_BLOB_FORCE(payment_id)
+KV_SERIALIZE_MAP_CODE_END()

@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2022, The Monero Project
+// Copyright (c) 2014-2019, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -31,14 +31,16 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <vector>
-#include <string>
-#include <boost/multiprecision/cpp_int.hpp>
-#include "crypto/hash.h"
+#include "cryptonote_config.h"
+#include "common/util.h"
+
+namespace crypto { struct hash; }
 
 namespace cryptonote
 {
-    typedef boost::multiprecision::uint128_t difficulty_type;
+    typedef std::uint64_t difficulty_type;
 
     /**
      * @brief checks if a hash fits the given difficulty
@@ -52,12 +54,31 @@ namespace cryptonote
      *
      * @return true if valid, else false
      */
-    bool check_hash_64(const crypto::hash &hash, uint64_t difficulty);
-    uint64_t next_difficulty_64(std::vector<std::uint64_t> timestamps, std::vector<uint64_t> cumulative_difficulties, size_t target_seconds);
-
-    bool check_hash_128(const crypto::hash &hash, difficulty_type difficulty);
     bool check_hash(const crypto::hash &hash, difficulty_type difficulty);
-    difficulty_type next_difficulty(std::vector<std::uint64_t> timestamps, std::vector<difficulty_type> cumulative_difficulties, size_t target_seconds);
 
-    std::string hex(difficulty_type v);
+    // Add one timestamp and difficulty to the input arrays, trimming down the
+    // array if necessary for usage in next_difficulty_v2.
+    void add_timestamp_and_difficulty(cryptonote::network_type nettype,
+                                      uint64_t chain_height,
+                                      std::vector<uint64_t> &timestamps,
+                                      std::vector<difficulty_type> &difficulties,
+                                      uint64_t timestamp,
+                                      uint64_t cumulative_difficulty);
+
+
+    constexpr difficulty_type POS_FIXED_DIFFICULTY = 1'000'000;
+    enum struct difficulty_calc_mode
+    {
+      use_old_lwma,
+      hf12_override,
+      hf16_override,
+      normal,
+    };
+
+    difficulty_calc_mode difficulty_mode(network_type nettype, uint64_t height);
+
+    difficulty_type next_difficulty_v2(std::vector<std::uint64_t> timestamps,
+                                       std::vector<difficulty_type> cumulative_difficulties,
+                                       size_t target_second,
+                                       difficulty_calc_mode mode);
 }
