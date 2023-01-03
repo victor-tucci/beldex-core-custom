@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2022, The Monero Project
+// Copyright (c) 2014-2019, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -158,6 +158,6 @@ void add_extra_entropy_not_thread_safe(const void *ptr, size_t bytes)
     for (i = 0; i < round_bytes; ++i)
       state.b[i] ^= ((const uint8_t*)ptr)[i];
     bytes -= round_bytes;
-    ptr = cpadd(ptr, round_bytes);
+    ptr = (const char *)ptr + round_bytes;
   }
 }

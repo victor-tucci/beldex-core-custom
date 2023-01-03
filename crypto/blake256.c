@@ -1,4 +1,4 @@
-// Copyright (c) 2014-2022, The Monero Project
+// Copyright (c) 2014-2019, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -38,9 +38,8 @@
  */
 
 #include <string.h>
-#include <stdio.h>
 #include <stdint.h>
-#include "memwipe.h"
+#include "epee/memwipe.h"
 #include "blake256.h"
 
 #define U8TO32(p) \

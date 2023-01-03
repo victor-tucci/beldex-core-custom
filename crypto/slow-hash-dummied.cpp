@@ -34,6 +34,6 @@ extern "C"
 {
 	void cn_slow_hash(const void *data, size_t length, char *hash, int variant, int prehashed, uint64_t height)
 	{
-		throw std::runtime_error("Didn't expect cn_slow_hash to be called in stripped-down monero-core-custom");
+		throw std::runtime_error("Didn't expect cn_slow_hash to be called in stripped-down beldex-core-custom");
 	}
 }

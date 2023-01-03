@@ -1,4 +1,5 @@
-// Copyright (c) 2014-2022, The Monero Project
+// Copyright (c) 2018-2020, The Beldex Project
+// Copyright (c) 2014-2019, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -29,81 +30,38 @@
 // Parts of this file are originally copyright (c) 2012-2013 The Cryptonote developers
 
 #pragma once
-#include <memory>
-#include <boost/type_traits/make_unsigned.hpp>
+#include <utility>
 #include "serialization.h"
 
-namespace serialization
+namespace serialization_s
 {
-  namespace detail
-  {
-    template<typename T>
-    inline constexpr bool use_pair_varint() noexcept
-    {
-      return std::is_integral<T>::value && std::is_unsigned<T>::value && sizeof(T) > 1;
-    }
+namespace detail
+{
 
-    template <typename Archive, class T>
-    typename std::enable_if<!use_pair_varint<T>(), bool>::type
-    serialize_pair_element(Archive& ar, T& e)
-    {
-      return ::do_serialize(ar, e);
-    }
-
-    template<typename Archive, typename T>
-    typename std::enable_if<use_pair_varint<T>(), bool>::type
-    serialize_pair_element(Archive& ar, T& e)
-    {
-      static constexpr const bool previously_varint = std::is_same<uint64_t, T>();
-
-      if (!previously_varint && ar.varint_bug_backward_compatibility_enabled() && !typename Archive::is_saving())
-        return ::do_serialize(ar, e);
-      ar.serialize_varint(e);
-      return true;
-    }
-  }
+template <typename Archive, class T>
+void serialize_pair_element(Archive& ar, T& e)
+{
+  if constexpr (std::is_same_v<std::remove_cv_t<T>, uint64_t>)
+    return varint(ar, e);
+  else
+    return value(ar, e);
 }
 
-template <template <bool> class Archive, class F, class S>
-inline bool do_serialize(Archive<false>& ar, std::pair<F,S>& p)
+} // namespace detail
+
+
+template <class Archive, class F, class S>
+void serialize_value(Archive& ar, std::pair<F,S>& p)
 {
   size_t cnt;
-  ar.begin_array(cnt);
-  if (!ar.good())
-    return false;
-  if (cnt != 2)
-    return false;
+  auto arr = ar.begin_array(cnt);
+  if (!Archive::is_serializer && cnt != 2)
+    throw std::runtime_error("Serialization failed: expected pair, found " + std::to_string(cnt) + " values");
 
-  if (!::serialization::detail::serialize_pair_element(ar, p.first))
-    return false;
-  if (!ar.good())
-    return false;
-  ar.delimit_array();
-  if (!::serialization::detail::serialize_pair_element(ar, p.second))
-    return false;
-  if (!ar.good())
-    return false;
+  detail::serialize_pair_element(arr.element(), p.first);
+  detail::serialize_pair_element(arr.element(), p.second);
 
   ar.end_array();
-  return true;
 }
 
-template <template <bool> class Archive, class F, class S>
-inline bool do_serialize(Archive<true>& ar, std::pair<F,S>& p)
-{
-  ar.begin_array(2);
-  if (!ar.good())
-    return false;
-  if(!::serialization::detail::serialize_pair_element(ar, p.first))
-    return false;
-  if (!ar.good())
-    return false;
-  ar.delimit_array();
-  if(!::serialization::detail::serialize_pair_element(ar, p.second))
-    return false;
-  if (!ar.good())
-    return false;
-  ar.end_array();
-  return true;
 }
-

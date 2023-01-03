@@ -2,10 +2,12 @@
 // 19-Nov-11  Markku-Juhani O. Saarinen <mjos@iki.fi>
 // A baseline Keccak (3rd round) implementation.
 
+#include <assert.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include "int-util.h"
+#include "epee/int-util.h"
 #include "hash-ops.h"
 #include "keccak.h"
 
@@ -31,82 +33,53 @@ const uint64_t keccakf_rndc[24] =
     0x8000000000008080, 0x0000000080000001, 0x8000000080008008
 };
 
+const int keccakf_rotc[24] = 
+{
+    1,  3,  6,  10, 15, 21, 28, 36, 45, 55, 2,  14, 
+    27, 41, 56, 8,  25, 43, 62, 18, 39, 61, 20, 44
+};
+
+const int keccakf_piln[24] = 
+{
+    10, 7,  11, 17, 18, 3, 5,  16, 8,  21, 24, 4, 
+    15, 23, 19, 13, 12, 2, 20, 14, 22, 9,  6,  1 
+};
+
 // update the state with given number of rounds
 
 void keccakf(uint64_t st[25], int rounds)
 {
-    int round;
+    int i, j, round;
     uint64_t t, bc[5];
 
-    for (round = 0; round < rounds; ++round) {
+    for (round = 0; round < rounds; round++) {
+
         // Theta
-        bc[0] = st[0] ^ st[5] ^ st[10] ^ st[15] ^ st[20];
-        bc[1] = st[1] ^ st[6] ^ st[11] ^ st[16] ^ st[21];
-        bc[2] = st[2] ^ st[7] ^ st[12] ^ st[17] ^ st[22];
-        bc[3] = st[3] ^ st[8] ^ st[13] ^ st[18] ^ st[23];
-        bc[4] = st[4] ^ st[9] ^ st[14] ^ st[19] ^ st[24];
+        for (i = 0; i < 5; i++)     
+            bc[i] = st[i] ^ st[i + 5] ^ st[i + 10] ^ st[i + 15] ^ st[i + 20];
 
-#define THETA(i) { \
-            t = bc[(i + 4) % 5] ^ ROTL64(bc[(i + 1) % 5], 1); \
-            st[i     ] ^= t; \
-            st[i +  5] ^= t; \
-            st[i + 10] ^= t; \
-            st[i + 15] ^= t; \
-            st[i + 20] ^= t; \
+        for (i = 0; i < 5; i++) {
+            t = bc[(i + 4) % 5] ^ ROTL64(bc[(i + 1) % 5], 1);
+            for (j = 0; j < 25; j += 5)
+                st[j + i] ^= t;
         }
-
-        THETA(0);
-        THETA(1);
-        THETA(2);
-        THETA(3);
-        THETA(4);
 
         // Rho Pi
         t = st[1];
-        st[ 1] = ROTL64(st[ 6], 44);
-        st[ 6] = ROTL64(st[ 9], 20);
-        st[ 9] = ROTL64(st[22], 61);
-        st[22] = ROTL64(st[14], 39);
-        st[14] = ROTL64(st[20], 18);
-        st[20] = ROTL64(st[ 2], 62);
-        st[ 2] = ROTL64(st[12], 43);
-        st[12] = ROTL64(st[13], 25);
-        st[13] = ROTL64(st[19],  8);
-        st[19] = ROTL64(st[23], 56);
-        st[23] = ROTL64(st[15], 41);
-        st[15] = ROTL64(st[ 4], 27);
-        st[ 4] = ROTL64(st[24], 14);
-        st[24] = ROTL64(st[21],  2);
-        st[21] = ROTL64(st[ 8], 55);
-        st[ 8] = ROTL64(st[16], 45);
-        st[16] = ROTL64(st[ 5], 36);
-        st[ 5] = ROTL64(st[ 3], 28);
-        st[ 3] = ROTL64(st[18], 21);
-        st[18] = ROTL64(st[17], 15);
-        st[17] = ROTL64(st[11], 10);
-        st[11] = ROTL64(st[ 7],  6);
-        st[ 7] = ROTL64(st[10],  3);
-        st[10] = ROTL64(t, 1);
-
-        //  Chi
-#define CHI(j) { \
-            const uint64_t st0 = st[j    ]; \
-            const uint64_t st1 = st[j + 1]; \
-            const uint64_t st2 = st[j + 2]; \
-            const uint64_t st3 = st[j + 3]; \
-            const uint64_t st4 = st[j + 4]; \
-            st[j    ] ^= ~st1 & st2; \
-            st[j + 1] ^= ~st2 & st3; \
-            st[j + 2] ^= ~st3 & st4; \
-            st[j + 3] ^= ~st4 & st0; \
-            st[j + 4] ^= ~st0 & st1; \
+        for (i = 0; i < 24; i++) {
+            j = keccakf_piln[i];
+            bc[0] = st[j];
+            st[j] = ROTL64(t, keccakf_rotc[i]);
+            t = bc[0];
         }
 
-        CHI( 0);
-        CHI( 5);
-        CHI(10);
-        CHI(15);
-        CHI(20);
+        //  Chi
+        for (j = 0; j < 25; j += 5) {
+            for (i = 0; i < 5; i++)
+                bc[i] = st[j + i];
+            for (i = 0; i < 5; i++)
+                st[j + i] ^= (~bc[(i + 1) % 5]) & bc[(i + 2) % 5];
+        }
 
         //  Iota
         st[0] ^= keccakf_rndc[round];
@@ -175,6 +148,7 @@ void keccak1600(const uint8_t *in, size_t inlen, uint8_t *md)
 #define KECCAK_BLOCKLEN 136
 #define KECCAK_WORDS 17
 #define KECCAK_DIGESTSIZE 32
+#define IS_ALIGNED_64(p) (0 == (7 & ((const char*)(p) - (const char*)0)))
 #define KECCAK_PROCESS_BLOCK(st, block) { \
     for (int i_ = 0; i_ < KECCAK_WORDS; i_++){ \
         ((st))[i_] ^= swap64le(((block))[i_]); \
@@ -206,10 +180,17 @@ void keccak_update(KECCAK_CTX * ctx, const uint8_t *in, size_t inlen){
         inlen -= left;
     }
 
+    const bool is_aligned = IS_ALIGNED_64(in);
     while (inlen >= KECCAK_BLOCKLEN) {
-        memcpy(ctx->message, in, KECCAK_BLOCKLEN);
+        const uint64_t* aligned_message_block;
+        if (is_aligned) {
+            aligned_message_block = (uint64_t*)in;
+        } else {
+            memcpy(ctx->message, in, KECCAK_BLOCKLEN);
+            aligned_message_block = ctx->message;
+        }
 
-        KECCAK_PROCESS_BLOCK(ctx->hash, ctx->message);
+        KECCAK_PROCESS_BLOCK(ctx->hash, aligned_message_block);
         in  += KECCAK_BLOCKLEN;
         inlen -= KECCAK_BLOCKLEN;
     }

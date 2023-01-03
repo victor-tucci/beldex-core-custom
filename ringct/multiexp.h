@@ -1,5 +1,4 @@
-// Copyright (c) 2017-2022, The Monero Project
-
+// Copyright (c) 2017, The Monero Project
 // 
 // All rights reserved.
 // 
@@ -37,7 +36,7 @@
 #include <vector>
 #include "crypto/crypto.h"
 #include "rctTypes.h"
-#include "misc_log_ex.h"
+#include "epee/misc_log_ex.h"
 
 namespace rct
 {
