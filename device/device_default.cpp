@@ -273,7 +273,7 @@ namespace hw {
             crypto::generate_signature(cryptonote::tx_extra_tx_key_image_unlock::HASH, pub, sec, sig);
             return true;
         }
-
+#ifndef BELDEX_CORE_CUSTOM
         bool device_default::generate_bns_signature(std::string_view sig_data, const cryptonote::account_keys& keys, const cryptonote::subaddress_index& index, crypto::signature& sig) {
             crypto::hash hash;
             crypto_generichash(reinterpret_cast<unsigned char*>(hash.data), sizeof(hash), reinterpret_cast<const unsigned char*>(sig_data.data()), sig_data.size(), nullptr, 0);
@@ -288,7 +288,7 @@ namespace hw {
             crypto::generate_signature(hash, pkey, skey, sig);
             return true;
         }
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 
         bool device_default::conceal_derivation(crypto::key_derivation &derivation, const crypto::public_key &tx_pub_key, const std::vector<crypto::public_key> &additional_tx_pub_keys, const crypto::key_derivation &main_derivation, const std::vector<crypto::key_derivation> &additional_derivations){
             return true;

@@ -85,7 +85,7 @@ namespace cryptonote
     master_nodes::payout  block_leader;         // Winner from the Master Node queuing in the Master Node List.
     uint64_t               batched_governance;   // NOTE: 0 until hardfork v10, then use blockchain::calc_batched_governance_reward
   };
-
+#ifndef BELDEX_CORE_CUSTOM
   bool construct_miner_tx(
       size_t height,
       size_t median_weight,
@@ -97,7 +97,7 @@ namespace cryptonote
       const blobdata& extra_nonce = blobdata(),
       uint8_t hard_fork_version = 1,
       const crypto::signature security_signature={} );
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 
   struct block_reward_parts
   {
@@ -241,9 +241,9 @@ namespace cryptonote
                                       std::vector<crypto::public_key> &additional_tx_public_keys,
                                       std::vector<rct::key> &amount_keys,
                                       crypto::public_key &out_eph_public_key) ;
-
+#ifndef BELDEX_CORE_CUSTOM
   bool generate_genesis_block(block& bl, network_type nettype);
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 
   struct randomx_longhash_context
   {

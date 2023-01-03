@@ -39,9 +39,9 @@
 #include "common/base58.h"
 #include "crypto/hash.h"
 #include "epee/int-util.h"
-
+#ifndef BELDEX_CORE_CUSTOM
 #include "common/dns_utils.h"
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 #include "common/beldex.h"
 #include <cfenv>
 
@@ -93,7 +93,7 @@ namespace cryptonote {
     return CRYPTONOTE_MAX_TX_SIZE;
   }
   //-----------------------------------------------------------------------------------------------
- 
+ #ifndef BELDEX_CORE_CUSTOM
   // TODO(beldex): Move into beldex_economy, this will require access to beldex::exp2
   uint64_t block_reward_unpenalized_formula_v7(uint8_t version, uint64_t already_generated_coins, uint64_t height)
   {
@@ -184,7 +184,7 @@ namespace cryptonote {
     reward = reward_lo;
     return true;
   }
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 
   //------------------------------------------------------------------------------------
   uint8_t get_account_address_checksum(const public_address_outer_blob& bl)
@@ -303,7 +303,7 @@ namespace cryptonote {
     return true;
   }
   //--------------------------------------------------------------------------------
-
+#ifndef BELDEX_CORE_CUSTOM
   bool get_account_address_from_str_or_url(
       address_parse_info& info
     , network_type nettype
@@ -326,7 +326,7 @@ namespace cryptonote {
   bool operator ==(const cryptonote::block& a, const cryptonote::block& b) {
     return cryptonote::get_block_hash(a) == cryptonote::get_block_hash(b);
   }
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 
 }
 

@@ -132,7 +132,7 @@ static std::string utf8(const unsigned char *data, uint32_t len)
   /* assume well formedness */
   return std::string((const char *)data,len);
 }
-
+#ifndef BELDEX_CORE_CUSTOM
 int i18n_set_language(const char *directory, const char *base, std::string language)
 {
   i18n_log("i18n_set_language(" << directory << "," << base << ")");
@@ -316,7 +316,7 @@ int i18n_set_language(const char *directory, const char *base, std::string langu
 
   return 0;
 }
-#endif //
+#endif //BELDEX_CORE_CUSTOM
 /* The entries is constant by that time */
 const char *i18n_translate(const char *s, const std::string &context)
 {

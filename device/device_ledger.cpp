@@ -1334,7 +1334,7 @@ unsigned int device_ledger::exchange_wait_on_input(unsigned int ok, unsigned int
 
         return true;
     }
-
+#ifndef BELDEX_CORE_CUSTOM
     bool device_ledger::generate_bns_signature(std::string_view sig_data, const cryptonote::account_keys& keys, const cryptonote::subaddress_index& index, crypto::signature& sig) {
         // Initialize (prompts the user):
         int offset = set_command_header_noopt(INS_GEN_BNS_SIGNATURE);
@@ -1352,7 +1352,7 @@ unsigned int device_ledger::exchange_wait_on_input(unsigned int ok, unsigned int
 
         return true;
     }
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
     /* ======================================================================= */
     /*                               TRANSACTION                               */
     /* ======================================================================= */

@@ -35,10 +35,10 @@
 #include "common/hex.h"
 #include "cryptonote_tx_utils.h"
 #include "cryptonote_config.h"
-
+#ifndef BELDEX_CORE_CUSTOM
 #include "blockchain.h"
 #include "cryptonote_basic/miner.h"
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 #include "cryptonote_basic/tx_extra.h"
 #include "crypto/crypto.h"
 #include "crypto/hash.h"
@@ -255,7 +255,7 @@ namespace cryptonote
     uint64_t               amount;
     bool operator==(master_nodes::payout_entry const &other) const { return address == other.address; }
   };
-
+#ifndef BELDEX_CORE_CUSTOM
   bool construct_miner_tx(
       size_t height,
       size_t median_weight,
@@ -567,7 +567,7 @@ namespace cryptonote
 
     return true;
   }
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 
   crypto::public_key get_destination_view_key_pub(const std::vector<tx_destination_entry> &destinations, const std::optional<cryptonote::tx_destination_entry>& change_addr)
   {
@@ -1141,7 +1141,7 @@ namespace cryptonote
      return construct_tx_and_get_tx_key(sender_account_keys, subaddresses, sources, destinations_copy, change_addr, extra, tx, unlock_time, tx_key, additional_tx_keys, rct_config, NULL, tx_params);
   }
   //---------------------------------------------------------------
-
+#ifndef BELDEX_CORE_CUSTOM
   bool generate_genesis_block(block& bl, network_type nettype)
   {
       const auto& conf = get_config(nettype);
@@ -1246,5 +1246,5 @@ namespace cryptonote
   {
     rx_reorg(split_height);
   }
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
 }

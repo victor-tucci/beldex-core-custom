@@ -285,9 +285,9 @@ namespace hw {
         bool  generate_key_image(const crypto::public_key &pub, const crypto::secret_key &sec, crypto::key_image &image) override;
         bool  generate_key_image_signature(const crypto::key_image& image, const crypto::public_key& pub, const crypto::secret_key& sec, crypto::signature& sig) override;
         bool  generate_unlock_signature(const crypto::public_key& pub, const crypto::secret_key& sec, crypto::signature& sig) override;
-
+#ifndef BELDEX_CORE_CUSTOM
         bool  generate_bns_signature(std::string_view sig_data, const cryptonote::account_keys& keys, const cryptonote::subaddress_index& index, crypto::signature& sig) override;
-#endif // 
+#endif // BELDEX_CORE_CUSTOM
         /* ======================================================================= */
         /*                               TRANSACTION                               */
         /* ======================================================================= */
